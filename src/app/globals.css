@@ -28,13 +28,7 @@
     scrollbar-width: none;
   }
 }
-.signup-layout {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: #f9fafb;
-}
+
 @theme inline {
   /* --font-mono: var(--font-geist-mono); */
 

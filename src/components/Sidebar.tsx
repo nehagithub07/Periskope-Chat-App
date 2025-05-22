@@ -1,7 +1,8 @@
 import Image from "next/image";
 import { Icon } from "@iconify/react";
 import { useState } from "react";
-import { useAuthContext } from "../context/authContext"
+import { useAuthContext } from "../context/authContext";
+
 const DivisionComp = ({
   children,
   hasBorder = true,

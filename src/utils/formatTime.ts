@@ -2,10 +2,10 @@ export function formatToOnlyTime(timeStr: string): string {
   if (!timeStr) return "";
 
   // Remove microseconds if present
-  const trimmedTimeStr = timeStr.split(".")[0] + "Z"; 
+  const trimmedTimeStr = timeStr.split(".")[0] + "Z"; // Append 'Z' to treat it as UTC
 
   const date = new Date(trimmedTimeStr);
-  if (isNaN(date.getTime())) return "Invalid Date";
+  if (isNaN(date.getTime())) return "Invalid Date"; // Handle invalid inputs
 
   return date
     .toLocaleTimeString("en-US", {
@@ -13,7 +13,7 @@ export function formatToOnlyTime(timeStr: string): string {
       minute: "2-digit",
       hour12: true,
     })
-    .replace(/^(\d):/, "0$1:"); 
+    .replace(/^(\d):/, "0$1:"); // Ensure leading zero for single-digit hours
 }
 
 export function formatToDate(timestamp: string): string {

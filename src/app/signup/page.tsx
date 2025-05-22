@@ -1,6 +1,5 @@
 "use client";
 
-import { createProfile } from "@/src/actions/createProfile";
 import PassInput from "../../components/inputs/PassInput";
 import TextInput from "../../components/inputs/TextInput";
 import { supabase } from "../../lib/supabaseClient";
@@ -12,33 +11,38 @@ export default function Page() {
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [name, setName] = useState<string>("");
-  const [phone, setPhone] = useState<string>("");
+  const [number, setNumber] = useState<string>("");
   const router = useRouter();
 
-const handleSignup = async () => {
-  if (!email || !password) {
-    alert("Please fill in both email and password.");
-    return;
-  }
+  const handleSignup = async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      phone: number,
+    });
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-    createProfile(email, phone, name);
- 
-  if (error) {
-    console.log("Signup error: " + error.message);
-    return;
-  }
+    if (!error && data.user) {
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .insert([{ id: data.user.id, email, phone: number, name }]);
 
-  alert("Signup successful! Please check your email to confirm.");
-};
+      if (!profileError) {
+        alert("Signup successful! Please log in.");
+        router.push("/login");
+      } else {
+        alert(profileError.message || "Profile creation failed");
+      }
+    } else {
+      alert(error?.message || "Signup failed");
+    }
+  };
 
   return (
     <div className="w-full h-screen flex flex-1">
       <div className="flex-[0.5] w-full h-full bg-ws-green-200 flex items-center justify-center">
-        <Image src="/logo.png" width={200} height={200} alt="Logo" />
+        <div>
+          <Image src={"/logo.png"} width={200} height={200} alt="Logo" />
+        </div>
       </div>
 
       <div className="flex-[0.5] w-full h-full flex items-center justify-center">
@@ -54,8 +58,8 @@ const handleSignup = async () => {
               type="email"
             />
             <TextInput
-              value={phone}
-              setValue={setPhone}
+              value={number}
+              setValue={setNumber}
               placeholder="Phone Number"
             />
             <PassInput password={password} setPassword={setPassword} />
@@ -63,10 +67,20 @@ const handleSignup = async () => {
 
           <button
             onClick={handleSignup}
-            className="w-full bg-ws-green-200 py-2 rounded-md text-white hover:opacity-90 transition"
+            className="w-full bg-ws-green-200 py-2 rounded-md text-white cursor-pointer"
           >
             Sign up
           </button>
+
+          <p className="mt-4 text-sm">
+            Already have an account?{" "}
+            <span
+              className="text-ws-green-200 cursor-pointer underline"
+              onClick={() => router.push("/login")}
+            >
+              Login
+            </span>
+          </p>
         </div>
       </div>
     </div>

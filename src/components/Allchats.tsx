@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react/dist/iconify.js";
-import BorderButton, { ButtonContent } from "./buttons/BorderButton";
+import BorderButton, { BUTTON_CONTENT } from "./buttons/BorderButton";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuthContext } from "../context/authContext";
@@ -245,29 +245,35 @@ const AllChats = ({
   }, [tab1SearchQuery]);
 
   const fetchNewSearchPersons = async (phoneNumber: string) => {
+    if (!user?.id) return; // Prevent query if user id is not available
+
+    // const { data, error } = await supabase
+    //   .from("profiles")
+    //   .select("*")
+    //   .eq("phone", phoneNumber)
+    //   .neq("id", user.id);
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .eq("phone", phoneNumber) // Exact match on phone_number
+      .ilike("phone", `%${phoneNumber}%`) // partial search
       .neq("id", user?.id);
 
-    console.log(data);
-
     if (error) {
+      console.error("Supabase error:", error);
       setNewSearchPersons([]);
-    } else {
-      // Mapping to include the latest message for each user
-      const personsData: CHAT_INFO[] = data?.map((person: any) => ({
-        person_id: person.id,
-        name: person.name,
-        phone: person.phone,
-        latest_message: "",
-        latest_message_timestamp: "",
-        labels: [],
-      }));
-
-      setNewSearchPersons(personsData);
+      return;
     }
+
+    const personsData: CHAT_INFO[] = data.map((person: any) => ({
+      person_id: person.id,
+      name: person.name,
+      phone: person.phone,
+      latest_message: "",
+      latest_message_timestamp: "",
+      labels: [],
+    }));
+
+    setNewSearchPersons(personsData);
   };
 
   useEffect(() => {
@@ -328,7 +334,7 @@ const AllChats = ({
                   <p className="text-xs font-semibold">Custom filter</p>
                 </button>
 
-                <BorderButton text="Save" type={ButtonContent.TEXT} />
+                <BorderButton text="Save" type={BUTTON_CONTENT.TEXT} />
               </div>
 
               {/* Right section */}
@@ -339,7 +345,7 @@ const AllChats = ({
                   }}
                   icon="proicons:search"
                   text="Search"
-                  type={ButtonContent.ICON_TEXT}
+                  type={BUTTON_CONTENT.ICON_TEXT}
                 />
 
                 <div

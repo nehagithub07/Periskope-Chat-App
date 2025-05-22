@@ -1,5 +1,5 @@
 import { Icon } from "@iconify/react/dist/iconify.js";
-import BorderButton, { ButtonContent } from "./buttons/BorderButton";
+import BorderButton, { BUTTON_CONTENT } from "./buttons/BorderButton";
 
 const Header = () => {
   return (
@@ -33,11 +33,11 @@ const Header = () => {
 
         <BorderButton
           icon="icon-park-outline:download-computer"
-          type={ButtonContent.ICON}
+          type={BUTTON_CONTENT.ICON}
         />
         <BorderButton
           icon="material-symbols:notifications-off-rounded"
-          type={ButtonContent.ICON}
+          type={BUTTON_CONTENT.ICON}
           color="#99a1af"
         />
 

@@ -7,6 +7,7 @@ import { formatToOnlyTime } from "../utils/formatTime";
 import { Icon } from "@iconify/react/dist/iconify.js";
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "./Modal";
+
 enum MESSAGE_TYPES {
   SENT = "SENT",
   RECEIVED = "RECEIVED",
@@ -92,13 +93,11 @@ const MessageBox = ({
   );
 };
 
-// This is the main chatting window where the user's will send the messages
 const ChatWindow = ({
   currentChatPersonId,
 }: {
   currentChatPersonId: string;
 }) => {
-  // This will store the whole chat history
   const [chatHistory, setChatHistory] = useState<CHAT_INFO_TYPE[]>([]);
   const [profileInfo, setProfileInfo] = useState<
     | {
@@ -113,7 +112,6 @@ const ChatWindow = ({
 
   const { user } = useAuthContext();
 
-  // The message entered by the user
   const [message, setMessage] = useState<string>("");
 
   const chatWindowRef = useRef<HTMLDivElement>(null);
@@ -141,7 +139,6 @@ const ChatWindow = ({
   const [currentSelectedMessageId, setCurrentSelectedMessageId] =
     useState<string>("");
 
-  // For displaying the scroll to bottom button on scroll
   const [isScrollToBBVisible, setIsScrollToBBVisible] =
     useState<boolean>(false);
 
@@ -151,8 +148,6 @@ const ChatWindow = ({
     if (!chatWindowElement) return;
 
     const goToBottom = () => {
-      //   console.log(chatWindowElement.scrollTop, chatWindowElement.scrollHeight);
-
       if (chatWindowElement.scrollTop >= chatWindowElement.scrollHeight / 3) {
         setIsScrollToBBVisible(false);
       } else {
@@ -276,7 +271,7 @@ const ChatWindow = ({
       .from("profiles")
       .select("*")
       .eq("id", profileId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       return;

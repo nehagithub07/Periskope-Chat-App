@@ -1,6 +1,5 @@
 import { ReactNode } from "react";
 
-// This is the modal...
 const Modal = ({
   children,
   isOpen,
