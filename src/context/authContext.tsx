@@ -7,8 +7,9 @@ import {
   useEffect,
   useCallback,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import path from "path";
 
 interface AuthContextType {
   user: {
@@ -31,53 +32,78 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthContextType["user"]>(null);
+  const [user, setUser] = useState<{
+    id: string;
+    email: string | undefined;
+    phone?: string | undefined;
+    name?: string | undefined;
+  } | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
 
-  const setUserFunc = useCallback(async () => {
+  const fetchUserAndSet = useCallback(async () => {
     const { data, error } = await supabase.auth.getSession();
 
-    if (error || !data.session) {
+    if (error && pathname != '/signup') {
+      console.error("Error fetching session:", error);
       router.push("/login");
       return;
     }
 
-    const { data: personalData } = await supabase
+    if (!data.session?.user) {
+      // No user session found
+      setUser(null);
+    
+      if(pathname != '/signup') {
+         router.push("/login");
+      }
+     
+      return;
+    }
+
+    const userId = data.session.user.id;
+
+    const { data: personalData, error: personalError } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", data.session.user.id)
-      .single();
+      .eq("id", userId)
+      .maybeSingle();
 
-    if (!personalData) return;
+    if (personalError) {
+      console.error("Error fetching profile:", personalError);
+      // Optionally handle error, e.g. logout user or set user without profile
+      setUser({
+        id: userId,
+        email: data.session.user.email,
+      });
+      return;
+    }
+
+    if (!personalData) {
+      console.warn("No profile found for user id", userId);
+      setUser({
+        id: userId,
+        email: data.session.user.email,
+      });
+      return;
+    }
 
     setUser({
-      id: data.session.user.id,
+      id: userId,
       email: data.session.user.email,
       phone: personalData.phone,
       name: personalData.name,
     });
-  }, [router]);
 
-  useEffect(() => {
-    setUserFunc();
-  }, [setUserFunc]);
-
-  // Realtime auth listener
-  useEffect(() => {
+    // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         if (session?.user) {
-          const { data: personalData } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-
           setUser({
             id: session.user.id,
             email: session.user.email,
-            phone: personalData?.phone,
-            name: personalData?.name,
+            phone: personalData.phone,
+            name: personalData.name,
           });
         } else {
           setUser(null);
@@ -91,10 +117,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [router]);
 
+  useEffect(() => {
+    fetchUserAndSet();
+  }, [fetchUserAndSet]);
+
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
-    router.push("/login");
+    router.push("/login"); // Redirect to login page after logout
   };
 
   return (
