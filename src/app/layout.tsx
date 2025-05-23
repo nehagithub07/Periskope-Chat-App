@@ -1,5 +1,6 @@
 import { AuthProvider } from "../context/authContext";
 import "./globals.css";
+import AuthRedirect from "@/components/AuthRedirect";
 
 export default function RootLayout({
   children,
@@ -11,7 +12,9 @@ export default function RootLayout({
       <body>
         {/* Layout UI */}
         <main>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <AuthRedirect>{children}</AuthRedirect>
+          </AuthProvider>
         </main>
       </body>
     </html>
