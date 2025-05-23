@@ -61,7 +61,7 @@ export default function Page() {
           </button>
 
           <p className="mt-4 text-sm">
-            Don't have an account?{" "}
+            {`Don't have an account?`}
             <span
               className="text-ws-green-200 cursor-pointer underline"
               onClick={() => router.push("/signup")}
