@@ -6,7 +6,7 @@ This is a chat application built as part of a take-home assignment for Periskope
 
 ## Demo
 
-Live Demo: [https://your-vercel-link.com](https://periskope-chat-app-h8cd.vercel.app/login)
+Live Demo: [https://chat-app-vercel-link.com](https://periskope-chat-app-h8cd.vercel.app/login)
 
 ---
 
