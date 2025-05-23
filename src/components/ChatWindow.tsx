@@ -1,18 +1,19 @@
 "use client";
-
-import { useAuthContext } from "../context/authContext";
-import { useRefetch } from "../context/refetchContext";
-import { supabase } from "../lib/supabaseClient";
-import { formatToOnlyTime } from "../utils/formatTime";
+ 
+import { useAuthContext } from "@/context/authContext";
+import { useRefetch } from "@/context/refetchContext";
+import { supabase } from "@/lib/supabaseClient";
+import { formatToOnlyTime } from "@/utils/formatTime";
 import { Icon } from "@iconify/react/dist/iconify.js";
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "./Modal";
-
+import { get, set, del } from "idb-keyval";
+ 
 enum MESSAGE_TYPES {
   SENT = "SENT",
   RECEIVED = "RECEIVED",
 }
-
+ 
 type CHAT_INFO_TYPE = {
   id: string;
   type: MESSAGE_TYPES;
@@ -24,8 +25,9 @@ type CHAT_INFO_TYPE = {
   createdAt: string;
   number: string;
   replied_id: string;
+  isPending?: boolean;
 };
-
+ 
 const MessageBox = ({
   chatInfo,
   setCurrentSelectedId,
@@ -53,7 +55,9 @@ const MessageBox = ({
             chatInfo.type == MESSAGE_TYPES.SENT
               ? "bg-ws-green-100 rounded-l-lg"
               : "bg-white rounded-r-lg"
-          } px-3 py-2  rounded-b-lg min-w-60 flex flex-col max-w-96 space-y-2 shadow-md`}
+          } px-3 py-2 rounded-b-lg min-w-60 flex flex-col max-w-96 space-y-2 shadow-md ${
+            chatInfo.isPending ? "opacity-50" : ""
+          }`}
         >
           {repliedchatInfo && (
             <div className="text-sm bg-gray-200 w-full">
@@ -66,23 +70,31 @@ const MessageBox = ({
             </p>
             <p className="text-[10px] text-gray-400">{chatInfo.number}</p>
           </div>
-
+ 
           <div>
             <p className="text-black text-sm">{chatInfo.content}</p>
           </div>
-
+ 
           <div className="flex justify-end">
             <div className="flex items-center space-x-2">
               <p className="text-[10px] text-gray-400">
                 {formatToOnlyTime(chatInfo.createdAt)}
               </p>
-
-              {chatInfo.type == MESSAGE_TYPES.SENT && (
+ 
+              {chatInfo.type == MESSAGE_TYPES.SENT && !chatInfo.isPending && (
                 <Icon
                   icon={"charm:tick-double"}
                   width={"14"}
                   height={"14"}
                   className="text-blue-500"
+                />
+              )}
+              {chatInfo.isPending && (
+                <Icon
+                  icon={"mdi:clock-outline"}
+                  width={"14"}
+                  height={"14"}
+                  className="text-gray-400"
                 />
               )}
             </div>
@@ -92,7 +104,7 @@ const MessageBox = ({
     </div>
   );
 };
-
+ 
 const ChatWindow = ({
   currentChatPersonId,
 }: {
@@ -109,64 +121,143 @@ const ChatWindow = ({
       }
     | undefined
   >(undefined);
-
+ 
   const { user } = useAuthContext();
-
   const [message, setMessage] = useState<string>("");
-
   const chatWindowRef = useRef<HTMLDivElement>(null);
-
   const [isChatOverlayButtonsVisible, setIsChatOverlayButtonsVisible] =
     useState<boolean>(false);
-
   const [isLabelModalOpen, setIsLabelModalOpen] = useState<boolean>(false);
-
-  const sendMessage = async () => {
-    if (!message) return;
-
-    await supabase.from("messages").insert([
-      {
-        sender_id: user?.id,
-        receiver_id: currentChatPersonId,
-        content: message,
-        replied_id: currentSelectedMessageId ? currentSelectedMessageId : null,
-      },
-    ]);
-
-    setMessage("");
-  };
-
   const [currentSelectedMessageId, setCurrentSelectedMessageId] =
     useState<string>("");
-
   const [isScrollToBBVisible, setIsScrollToBBVisible] =
     useState<boolean>(false);
-
+  const { triggerRefetch } = useRefetch();
+ 
+  // Load pending messages from IndexedDB on mount
   useEffect(() => {
-    const chatWindowElement = chatWindowRef.current;
-
-    if (!chatWindowElement) return;
-
-    const goToBottom = () => {
-      if (chatWindowElement.scrollTop >= chatWindowElement.scrollHeight / 3) {
-        setIsScrollToBBVisible(false);
-      } else {
-        setIsScrollToBBVisible(true);
+    const loadPendingMessages = async () => {
+      const pendingMessages = await get(
+        `pendingMessages_${currentChatPersonId}`
+      );
+      if (pendingMessages) {
+        setChatHistory((prev) => [...prev, ...pendingMessages]);
       }
     };
-
-    chatWindowElement.addEventListener("scroll", goToBottom);
-
-    return () => {
-      chatWindowElement.removeEventListener("scroll", goToBottom);
-    };
+    if (currentChatPersonId) {
+      loadPendingMessages();
+    }
   }, [currentChatPersonId]);
-
-  const { triggerRefetch } = useRefetch();
-
+ 
+  const sendMessage = async () => {
+    if (!message || !user || !currentChatPersonId) return;
+ 
+    // Create a temporary message with a unique ID
+    const tempId = `temp_${Date.now()}_${Math.random()}`;
+    const tempMessage: CHAT_INFO_TYPE = {
+      id: tempId,
+      type: MESSAGE_TYPES.SENT,
+      name: user.name || "",
+      content: message,
+      sender_id: user.id,
+      receiver_id: currentChatPersonId,
+      is_read: false,
+      createdAt: new Date().toISOString(),
+      number: user.phone || "",
+      replied_id: currentSelectedMessageId || "",
+      isPending: true,
+    };
+ 
+    // Optimistic update: Add the message to the UI immediately
+    setChatHistory((prev) => [...prev, tempMessage]);
+ 
+    // Save the pending message to IndexedDB
+    const pendingMessagesKey = `pendingMessages_${currentChatPersonId}`;
+    const existingPendingMessages = (await get(pendingMessagesKey)) || [];
+    await set(pendingMessagesKey, [...existingPendingMessages, tempMessage]);
+ 
+    // Scroll to the bottom
+    chatWindowRef.current?.scrollTo({
+      behavior: "smooth",
+      top: chatWindowRef.current.scrollHeight,
+    });
+ 
+    // Clear the input
+    setMessage("");
+    setCurrentSelectedMessageId("");
+ 
+    // Send the message to Supabase and return the inserted row
+    try {
+      const { data: newMessage, error } = await supabase
+        .from("messages")
+        .insert([
+          {
+            sender_id: user.id,
+            receiver_id: currentChatPersonId,
+            content: message,
+            replied_id: currentSelectedMessageId || null,
+          },
+        ])
+        .select()
+        .single();
+ 
+      if (error) throw error;
+ 
+      // Format the server message
+      const formattedMessage: CHAT_INFO_TYPE = {
+        id: newMessage.id,
+        type: MESSAGE_TYPES.SENT,
+        name: user.name || "",
+        content: newMessage.content,
+        sender_id: newMessage.sender_id,
+        receiver_id: newMessage.receiver_id,
+        is_read: newMessage.is_read,
+        createdAt: newMessage.created_at,
+        number: user.phone || "",
+        replied_id: newMessage.replied_id || "",
+        isPending: false,
+      };
+ 
+      // Replace the temporary message with the server message
+      setChatHistory((prev) =>
+        prev.map((msg) => (msg.id === tempId ? formattedMessage : msg))
+      );
+ 
+      // Remove the pending message from IndexedDB
+      const updatedPendingMessages = (
+        (await get(pendingMessagesKey)) || []
+      ).filter((msg: CHAT_INFO_TYPE) => msg.id !== tempId);
+      if (updatedPendingMessages.length > 0) {
+        await set(pendingMessagesKey, updatedPendingMessages);
+      } else {
+        await del(pendingMessagesKey);
+      }
+ 
+      // Trigger refetch for the sidebar
+      triggerRefetch();
+    } catch (error) {
+      console.error("Error sending message:", error);
+ 
+      // On failure, remove the message from the UI
+      setChatHistory((prev) => prev.filter((msg) => msg.id !== tempId));
+ 
+      // Remove from IndexedDB
+      const updatedPendingMessages = (
+        (await get(pendingMessagesKey)) || []
+      ).filter((msg: CHAT_INFO_TYPE) => msg.id !== tempId);
+      if (updatedPendingMessages.length > 0) {
+        await set(pendingMessagesKey, updatedPendingMessages);
+      } else {
+        await del(pendingMessagesKey);
+      }
+ 
+      alert("Failed to send message. Please try again.");
+    }
+  };
+ 
   const fetchChatHistory = async () => {
     if (!user || !profileInfo) return;
-
+ 
     const { data } = await supabase
       .from("messages")
       .select("*")
@@ -174,7 +265,7 @@ const ChatWindow = ({
         `and(sender_id.eq.${user?.id},receiver_id.eq.${currentChatPersonId}),and(sender_id.eq.${currentChatPersonId},receiver_id.eq.${user.id})`
       )
       .order("created_at", { ascending: true });
-
+ 
     if (data) {
       const formattedData: CHAT_INFO_TYPE[] = data.map((d) => ({
         id: d.id,
@@ -183,76 +274,91 @@ const ChatWindow = ({
         createdAt: d.created_at,
         sender_id: d.sender_id,
         receiver_id: d.receiver_id,
-        name:
-          d.sender_id == user.id
-            ? user.name
-              ? user.name
-              : ""
-            : profileInfo.name,
-        number:
-          d.sender_id == user.id
-            ? user.phone
-              ? user.phone
-              : ""
-            : profileInfo.phone,
+        name: d.sender_id == user.id ? user.name || "" : profileInfo.name,
+        number: d.sender_id == user.id ? user.phone || "" : profileInfo.phone,
         type:
           d.sender_id == user.id ? MESSAGE_TYPES.SENT : MESSAGE_TYPES.RECEIVED,
         replied_id: d.replied_id,
       }));
-
-      setChatHistory(formattedData);
+ 
+      // Merge with pending messages from IndexedDB
+      const pendingMessages =
+        (await get(`pendingMessages_${currentChatPersonId}`)) || [];
+      setChatHistory([...formattedData, ...pendingMessages]);
     }
   };
-
+ 
+  useEffect(() => {
+    const chatWindowElement = chatWindowRef.current;
+ 
+    if (!chatWindowElement) return;
+ 
+    const goToBottom = () => {
+      if (chatWindowElement.scrollTop >= chatWindowElement.scrollHeight / 3) {
+        setIsScrollToBBVisible(false);
+      } else {
+        setIsScrollToBBVisible(true);
+      }
+    };
+ 
+    chatWindowElement.addEventListener("scroll", goToBottom);
+ 
+    return () => {
+      chatWindowElement.removeEventListener("scroll", goToBottom);
+    };
+  }, [currentChatPersonId]);
+ 
   useEffect(() => {
     if (!user || !currentChatPersonId || !profileInfo) return;
-
+ 
     fetchChatHistory();
     fetchSelectedLabels();
-
+ 
     chatWindowRef.current?.scrollTo({
       behavior: "smooth",
       top: chatWindowRef.current.scrollHeight,
     });
-
+ 
     const subscription = supabase
       .channel("realtime-messages")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
+          const newMessage = payload.new;
           const formattedData: CHAT_INFO_TYPE = {
-            id: payload.new.id,
-            content: payload.new.content,
-            is_read: payload.new.is_read,
-            createdAt: payload.new.createdAt,
-            sender_id: payload.new.sender_id,
-            receiver_id: payload.new.receiver_id,
+            id: newMessage.id,
+            content: newMessage.content,
+            is_read: newMessage.is_read,
+            createdAt: newMessage.created_at,
+            sender_id: newMessage.sender_id,
+            receiver_id: newMessage.receiver_id,
             name:
-              payload.new.sender_id == user.id
-                ? user.name
-                  ? user.name
-                  : ""
+              newMessage.sender_id == user.id
+                ? user.name || ""
                 : profileInfo.name,
             number:
-              payload.new.sender_id == user.id
-                ? user.phone
-                  ? user.phone
-                  : ""
+              newMessage.sender_id == user.id
+                ? user.phone || ""
                 : profileInfo.phone,
             type:
-              payload.new.sender_id == user.id
+              newMessage.sender_id == user.id
                 ? MESSAGE_TYPES.SENT
                 : MESSAGE_TYPES.RECEIVED,
-            replied_id: payload.new.replied_id,
+            replied_id: newMessage.replied_id,
           };
-
-          setChatHistory((prev) => [...prev, formattedData]);
-
+ 
+          // Only add the message if it's not already in the chat history (e.g., from the user's own send)
+          setChatHistory((prev) => {
+            if (prev.some((msg) => msg.id === newMessage.id)) {
+              return prev;
+            }
+            return [...prev, formattedData];
+          });
+ 
           triggerRefetch();
-
+ 
           const chatWindowElement = chatWindowRef.current;
-
           chatWindowElement?.scrollTo({
             behavior: "smooth",
             top: chatWindowElement.scrollHeight + 400,
@@ -260,53 +366,54 @@ const ChatWindow = ({
         }
       )
       .subscribe();
-
+ 
     return () => {
       supabase.removeChannel(subscription);
     };
   }, [user, profileInfo]);
-
+ 
   const getProfileById = async (profileId: string) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", profileId)
       .maybeSingle();
-
+ 
     if (error) {
+      console.error("Error fetching profile:", error);
       return;
     }
-
+ 
     setProfileInfo(data);
   };
-
+ 
   useEffect(() => {
     if (!currentChatPersonId) return;
-
+ 
     getProfileById(currentChatPersonId);
   }, [currentChatPersonId]);
-
+ 
   type LABEL_TYPE = {
     id: string;
     label_name: string;
     color: string;
   };
-
+ 
   const [labels, setLabels] = useState<LABEL_TYPE[]>([]);
   const [selectedLabels, setSelectedLabels] = useState<LABEL_TYPE[]>([]);
-
+ 
   const fetchLabels = async () => {
     const { data, error } = await supabase
       .from("chat_label_separate")
-      .select("id, label_name, color"); // Select all labels with their details
-
+      .select("id, label_name, color");
+ 
     if (error) {
       console.error("Error fetching chat labels:", error.message);
     } else {
       setLabels(data as LABEL_TYPE[]);
     }
   };
-
+ 
   const fetchSelectedLabels = async () => {
     const { data, error } = await supabase
       .from("chat_labels")
@@ -318,46 +425,46 @@ const ChatWindow = ({
       )
       .eq("user_id", user?.id)
       .eq("chat_partner_id", currentChatPersonId);
-
+ 
     if (error) {
+      console.error("Error fetching selected labels:", error);
       return;
     } else {
       const labels = data[0]
         ? data[0].label_name.map((label: string) => JSON.parse(label))
         : [];
-
+ 
       setSelectedLabels(labels);
     }
   };
-
+ 
   useEffect(() => {
     fetchLabels();
   }, []);
-
+ 
   const addLabels = async () => {
     const { data, error } = await supabase.from("chat_labels").upsert(
       [
         {
           user_id: user?.id,
           chat_partner_id: currentChatPersonId,
-          label_name: selectedLabels, // New or updated labels array
+          label_name: selectedLabels,
         },
       ],
       { onConflict: "user_id, chat_partner_id" }
     );
-
+ 
     if (error) {
       console.error("Error adding labels:", error);
     } else {
       setSelectedLabels([]);
-
       setIsLabelModalOpen(false);
     }
   };
-
+ 
   return (
     <div className="w-full h-full flex flex-1">
-      {/* Modal for displaying the add label diaglog */}
+      {/* Modal for displaying the add label dialog */}
       <Modal isOpen={isLabelModalOpen} setIsOpen={setIsLabelModalOpen}>
         <div
           className="w-[50%] h-[60%] bg-white rounded-lg p-4"
@@ -387,9 +494,9 @@ const ChatWindow = ({
               </div>
             ))}
           </div>
-
+ 
           <p>Selected Labels:</p>
-
+ 
           <div className="flex items-center gap-2 flex-wrap my-3">
             {selectedLabels?.map((l, index) => (
               <div
@@ -397,7 +504,6 @@ const ChatWindow = ({
                   const newLabels = selectedLabels.filter(
                     (label) => label.id != l.id
                   );
-
                   setSelectedLabels([...newLabels]);
                 }}
                 key={index}
@@ -414,7 +520,7 @@ const ChatWindow = ({
               </div>
             ))}
           </div>
-
+ 
           <button
             onClick={addLabels}
             className="bg-ws-green-400 text-sm px-3 py-1 rounded-md text-white mt-5 cursor-pointer"
@@ -423,7 +529,7 @@ const ChatWindow = ({
           </button>
         </div>
       </Modal>
-
+ 
       {/* Left main chat portion */}
       <section className="w-full h-full flex flex-col flex-[0.95] border-r border-ws-green-50 min-h-0 min-w-0">
         {/* header portion */}
@@ -442,18 +548,18 @@ const ChatWindow = ({
                 className="text-white"
               />
             </div>
-
+ 
             <div className="flex flex-col">
               <p className="text-black text-sm font-bold">
                 {profileInfo?.name}
               </p>
-
+ 
               <div className="text-neutral-400 text-xs font-medium flex items-center space-x-1">
                 <p>{profileInfo?.phone}</p>
               </div>
             </div>
           </div>
-
+ 
           {/* Right section */}
           <div className="flex items-center space-x-3">
             <Icon
@@ -462,7 +568,7 @@ const ChatWindow = ({
               height={"20"}
               className="text-black"
             />
-
+ 
             <Icon
               icon={"proicons:search"}
               width={"20"}
@@ -471,7 +577,7 @@ const ChatWindow = ({
             />
           </div>
         </header>
-
+ 
         {/* Messages section */}
         <div
           className={`relative w-full h-full border-y border-ws-green-50 flex flex-col min-h-0 min-w-0 justify-end ${
@@ -484,7 +590,7 @@ const ChatWindow = ({
             alt="background image"
             className="absolute z-0 top-0 left-0 w-full h-full object-cover opacity-50"
           />
-
+ 
           {/* scroll to bottom button */}
           {isScrollToBBVisible && (
             <div
@@ -497,13 +603,13 @@ const ChatWindow = ({
                     top: chatWindowRef.current.scrollHeight,
                   });
                 }}
-                className="bg-white w-14  h-fit py-1 rounded-sm cursor-pointer shadow-md flex justify-center"
+                className="bg-white w-14 h-fit py-1 rounded-sm cursor-pointer shadow-md flex justify-center"
               >
                 <Icon icon="mdi-light:arrow-down" width="20" height="20" />
               </div>
             </div>
           )}
-
+ 
           {/* This section will contain the messages */}
           <div
             className="w-full z-40 flex flex-col space-y-5 min-h-0 overflow-y-auto py-3 custom-scrollbar"
@@ -512,7 +618,7 @@ const ChatWindow = ({
             {chatHistory.map((chat, index) => (
               <MessageBox
                 chatInfo={chat}
-                key={index}
+                key={chat.id}
                 setCurrentSelectedId={setCurrentSelectedMessageId}
                 repliedchatInfo={chatHistory.find(
                   (c) => c.id == chat.replied_id
@@ -521,7 +627,7 @@ const ChatWindow = ({
             ))}
           </div>
         </div>
-
+ 
         {/* message input section */}
         <footer
           className={`w-full h-full flex-[0.09] px-5 py-3 relative ${
@@ -529,7 +635,7 @@ const ChatWindow = ({
           }`}
         >
           {currentSelectedMessageId && (
-            <div className=" z-50 bg-white">
+            <div className="z-50 bg-white">
               <MessageBox
                 chatInfo={
                   chatHistory.find(
@@ -542,7 +648,7 @@ const ChatWindow = ({
               />
             </div>
           )}
-
+ 
           {false && (
             <div className="absolute -top-1 left-4 -translate-y-full z-50 flex items-center space-x-1">
               <button className="bg-white px-4 rounded-t-md py-1 flex items-center space-x-2">
@@ -556,7 +662,7 @@ const ChatWindow = ({
                   className="text-gray-300"
                 />
               </button>
-
+ 
               <button className="bg-yellow-50 px-4 rounded-t-md py-1 flex items-center space-x-2">
                 <p className="text-xs font-semibold text-ws-green-200">
                   Private Note
@@ -570,7 +676,7 @@ const ChatWindow = ({
               </button>
             </div>
           )}
-
+ 
           <div className="w-full h-full flex flex-col space-y-4">
             <div className="w-full flex items-center justify-between space-x-3">
               <input
@@ -591,7 +697,7 @@ const ChatWindow = ({
                 className="w-full outline-none text-sm placeholder:text-neutral-400"
                 placeholder="Message..."
               />
-
+ 
               <Icon
                 onClick={sendMessage}
                 icon={"ic:round-send"}
@@ -600,7 +706,7 @@ const ChatWindow = ({
                 className="text-ws-green-400 cursor-pointer"
               />
             </div>
-
+ 
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-5 text-black [&>*]:cursor-pointer">
                 <Icon
@@ -623,15 +729,14 @@ const ChatWindow = ({
                 />
                 <Icon icon={"stash:mic-solid"} width={"16"} height={"16"} />
               </div>
-
+ 
               <div>
                 <button className="flex items-center justify-between border border-neutral-200 rounded-md px-2 py-1 w-32">
                   <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 rounded-full bg-neutral-300"> </div>
-
+                    <div className="w-3 h-3 rounded-full bg-neutral-300"></div>
                     <p className="text-xs font-medium">{user?.name}</p>
                   </div>
-
+ 
                   <Icon
                     icon={"mi:select"}
                     width={"14"}
@@ -644,11 +749,11 @@ const ChatWindow = ({
           </div>
         </footer>
       </section>
-
+ 
       {/* Right sidebar */}
       <section className="w-full h-full flex-[0.05] flex flex-col">
         <div className="w-full h-full flex-[0.07]"></div>
-
+ 
         <div className="w-full h-full flex-[0.93] flex flex-col items-center space-y-8 text-neutral-400 [&>*]:cursor-pointer">
           <Icon
             icon={"tabler:layout-sidebar-right-expand-filled"}
@@ -671,7 +776,6 @@ const ChatWindow = ({
           />
           <Icon icon={"gg:menu-left"} width={"18"} height={"18"} />
           <Icon icon={"arcticons:dots"} width={"18"} height={"18"} />
-
           <Icon icon={"mdi:hubspot"} width={"18"} height={"18"} />
           <Icon
             icon={"fluent:people-team-24-filled"}
@@ -686,5 +790,6 @@ const ChatWindow = ({
     </div>
   );
 };
-
+ 
 export default ChatWindow;
+ 
