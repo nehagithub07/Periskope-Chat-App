@@ -6,7 +6,7 @@ This is a chat application built as part of a take-home assignment for Periskope
 
 ## Demo
 
-Live Demo: [https://your-vercel-link.com](https://your-vercel-link.com)
+Live Demo: [https://your-vercel-link.com](https://periskope-chat-app-h8cd.vercel.app/login)
 
 ---
 
@@ -33,26 +33,17 @@ Live Demo: [https://your-vercel-link.com](https://your-vercel-link.com)
 ---
 
 ## Optional & Bonus Features
-
-- Chat search and filters 
-- Labels for chats  
-- IndexedDB integration for offline data persistence  
-- Semantic HTML tags for accessibility and SEO improvements
+- Implement Filters and Search for Chats
+- Implement a way to add labels to chats
+- Implement a way to assign members to different chats
+- IndexedDB integration for offline data persistence
+- Use of semantic HTML tags for accessibility
 
 ---
 
 ## Supabase Database Schema
 
 - **users**: Stores user profiles  
-- **chats**: Stores chat room info (group or individual)  
+- **chats**: Stores chat room info 
 - **messages**: Stores messages linked to chats and users  
-- **chat_members**: Many-to-many relation between users and chats
-
----
-
-## Setup and Running Locally
-
-1. Clone the repository  
-   ```bash
-   git clone https://github.com/your-username/chat-app.git
-   cd chat-app
+- **chat_members**: between users and chats
